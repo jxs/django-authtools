@@ -20,6 +20,7 @@ from django.views.decorators.cache import never_cache
 from django.views.decorators.csrf import csrf_protect
 from django.views.decorators.debug import sensitive_post_parameters
 from django.views.generic import FormView, TemplateView, RedirectView
+from django.contrib import messages
 
 
 User = get_user_model()
@@ -152,6 +153,7 @@ class PasswordChangeView(LoginRequiredMixin, AuthDecoratorsMixin, FormView):
     template_name = 'registration/password_change_form.html'
     form_class = PasswordChangeForm
     success_url = reverse_lazy('password_change_done')
+    success_message = ""
 
     def get_form_kwargs(self):
         kwargs = super(PasswordChangeView, self).get_form_kwargs()
@@ -163,6 +165,8 @@ class PasswordChangeView(LoginRequiredMixin, AuthDecoratorsMixin, FormView):
 
     def form_valid(self, form):
         form.save()
+        if self.success_message:
+            messages.success(self.request, self.success_message)
         return super(PasswordChangeView, self).form_valid(form)
 
 password_change = PasswordChangeView.as_view()
