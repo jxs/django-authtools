@@ -1,0 +1,28 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+{% block userlinks %}{% url 'django-admindocs-docroot' as docsroot %}{% if docsroot %}<a href="{{ docsroot }}">{% trans 'Documentation' %}</a> / {% endif %}{% trans 'Change password' %} / <a href="{% url 'admin:logout' %}">{% trans 'Log out' %}</a>{% endblock %}
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+  <a href="{% url 'admin:index' %}">{% trans 'Home' %}</a>
+  &rsaquo; {% trans 'Password change' %}
+</div>
+{% endblock %}
+
+{% block title %}
+{% if success %}
+{% trans 'Account confirmation successful' %}
+{% else %}
+{% trans 'Invalid Activation link' %}
+{% endif %}
+{% endblock %}
+
+{% block content %}
+{% if success %}
+<h1>{% trans 'Account creation successful' %}</h1>
+
+<p>{% trans 'You are now logged in.' %}</p>
+{% else %}
+<h1>{% trans 'Invalid activation link' %}</h1>
+{% endif %}
+
+{% endblock %}

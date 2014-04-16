@@ -3,7 +3,7 @@ Mostly equivalent to the views from django.contrib.auth.views, but
 implemented as class-based views.
 """
 from __future__ import unicode_literals
-
+import django
 from django.conf import settings
 from django.contrib.auth import get_user_model, REDIRECT_FIELD_NAME
 from django.contrib.auth.decorators import login_required
@@ -16,12 +16,16 @@ from django.core.urlresolvers import reverse_lazy
 from django.shortcuts import redirect, resolve_url
 from django.utils.functional import lazy
 from django.utils.http import base36_to_int, is_safe_url
+from django.utils.http import int_to_base36
 from django.views.decorators.cache import never_cache
 from django.views.decorators.csrf import csrf_protect
 from django.views.decorators.debug import sensitive_post_parameters
-from django.views.generic import FormView, TemplateView, RedirectView
+from django.views.generic import FormView, TemplateView, RedirectView, View
+from django.template import loader
+from django.core.mail import send_mail
 from django.contrib import messages
 
+from .forms import UserCreationWithMailConfirmForm
 
 User = get_user_model()
 
@@ -195,6 +199,7 @@ class PasswordResetView(CsrfProtectMixin, FormView):
     email_template_name = 'registration/password_reset_email.html'
     from_email = None
     form_class = PasswordResetForm
+    success_message = ""
 
     def form_valid(self, form):
         form.save(
@@ -205,6 +210,8 @@ class PasswordResetView(CsrfProtectMixin, FormView):
             from_email=self.from_email,
             request=self.request,
         )
+        if self.success_message:
+            messages.success(self.request, self.success_message)
         return super(PasswordResetView, self).form_valid(form)
 
 password_reset = PasswordResetView.as_view()
@@ -221,6 +228,7 @@ class PasswordResetConfirmView(AuthDecoratorsMixin, FormView):
     token_generator = default_token_generator
     form_class = SetPasswordForm
     success_url = reverse_lazy('password_reset_complete')
+    success_message = ""
 
     def dispatch(self, *args, **kwargs):
         assert self.kwargs.get('token') is not None
@@ -265,6 +273,8 @@ class PasswordResetConfirmView(AuthDecoratorsMixin, FormView):
         if not self.valid_link():
             return self.form_invalid(form)
         self.save_form(form)
+        if self.success_message:
+            messages.success(self.request, self.success_message)
         return super(PasswordResetConfirmView, self).form_valid(form)
 
     def save_form(self, form):
@@ -304,3 +314,100 @@ class PasswordResetCompleteView(TemplateView):
         return kwargs
 
 password_reset_complete = PasswordResetCompleteView.as_view()
+
+
+class RegistrationView(FormView):
+    disallow_authenticated = True
+    form_class = UserCreationWithMailConfirmForm
+    http_method_names = ['get', 'post', 'head', 'options', 'trace']
+    success_url = resolve_url_lazy('registration_done_view')
+    template_name = 'registration/registration_form.html'
+    subject_template_name = 'registration/email_confirm_subject.txt'
+    email_template_name = 'registration/email_confirmation_email.html'
+    domain_override = None
+    token_generator = default_token_generator
+    use_https = False
+    success_url = reverse_lazy('email_confirm_done')
+    success_message = ""
+    from_email = settings.DEFAULT_FROM_EMAIL
+
+    def dispatch(self, *args, **kwargs):
+        if self.disallow_authenticated and self.request.user.is_authenticated():
+            return redirect(self.get_success_url())
+        return super(RegistrationView, self).dispatch(*args, **kwargs)
+
+    def form_valid(self, form):
+        user = form.save()
+        if not self.domain_override:
+            current_site = get_current_site(self.request)
+            site_name = current_site.name
+            domain = current_site.domain
+        else:
+            site_name = domain = self.domain_override
+        if django.VERSION < (1, 6):
+            encoded_uid = int_to_base36(user.pk)
+        else:
+            from django.utils.http import urlsafe_base64_encode
+            from django.utils.encoding import force_bytes
+            encoded_uid = urlsafe_base64_encode(force_bytes(user.pk))
+        c = {
+            'email': user.email,
+            'domain': domain,
+            'site_name': site_name,
+            'uid': encoded_uid,
+            'user': user,
+            'token': self.token_generator.make_token(user),
+            'protocol': 'https' if self.use_https else 'http',
+        }
+        subject = loader.render_to_string(self.subject_template_name, c)
+        # Email subject *must not* contain newlines
+        subject = ''.join(subject.splitlines())
+        email = loader.render_to_string(self.email_template_name, c)
+        send_mail(subject, email, self.from_email, [user.email])
+        if self.success_message:
+            messages.success(self.request, self.success_message)
+        return super(RegistrationView, self).form_valid(form)
+
+    def registration_allowed(self, request):
+        if not request.user:
+            return True
+
+
+registration_view = RegistrationView.as_view()
+
+
+class RegistrationDoneView(TemplateView):
+    template_name = 'registration/registration_done.html'
+
+
+class RegistrationConfirmView(TemplateView):
+
+    template_name = 'registration/registration_complete.html'
+    token_generator = default_token_generator
+
+
+    def get(self, request, *args, **kwargs):
+        self.user = self.get_user()
+        if self.user and self.valid_link():
+            kwargs['success'] = True
+        return super(RegistrationConfirmView, self).get(request, *args, **kwargs)
+
+    def get_user(self):
+        # django 1.5 uses uidb36, django 1.6 uses uidb64
+        uidb36 = self.kwargs.get('uidb36')
+        uidb64 = self.kwargs.get('uidb64')
+        assert bool(uidb36) ^ bool(uidb64)
+        try:
+            if uidb36:
+                uid = base36_to_int(uidb36)
+            else:
+                # urlsafe_base64_decode is not available in django 1.5
+                from django.utils.http import urlsafe_base64_decode
+                uid = urlsafe_base64_decode(uidb64)
+            return User._default_manager.get(pk=uid)
+        except (TypeError, ValueError, OverflowError, User.DoesNotExist):
+            return None
+
+    def valid_link(self):
+        user = self.user
+        return user is not None and self.token_generator.check_token(user, self.kwargs.get('token'))

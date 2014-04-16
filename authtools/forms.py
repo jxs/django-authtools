@@ -100,6 +100,29 @@ class UserCreationForm(forms.ModelForm):
         return user
 
 
+class UserCreationWithMailConfirmForm(UserCreationForm):
+
+    def clean_email(self):
+        """
+        Validate that the supplied email address is unique for the
+        site.
+
+        """
+        if User.objects.filter(email__iexact=self.cleaned_data['email']):
+            raise forms.ValidationError(_("This email address is already in use. Please supply a different email address."))
+        return self.cleaned_data['email']
+
+    def save(self, commit=True):
+        # Save the provided password in hashed format
+        user = super(UserCreationForm, self).save(commit=False)
+        user.set_password(self.cleaned_data["password1"])
+        user.is_active = False
+        if commit:
+            user.save()
+        return user
+
+
+
 class UserChangeForm(forms.ModelForm):
     """
     A form for updating users. Includes all the fields on
