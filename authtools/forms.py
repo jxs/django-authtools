@@ -57,7 +57,7 @@ class UserCreationForm(forms.ModelForm):
         'duplicate_username': _("A user with that %(username)s already exists."),
     }
 
-    password1 = forms.CharField(label=_("Password"), widget=forms.PasswordInput)
+    password1 = forms.CharField(label=_("Password"), widget=forms.PasswordInput, min_length=8, max_length=12)
     password2 = forms.CharField(label=_("Password confirmation"),
                                 widget=forms.PasswordInput,
                                 help_text=_("Enter the same password as above,"

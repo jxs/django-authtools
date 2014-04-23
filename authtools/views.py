@@ -389,6 +389,8 @@ class RegistrationConfirmView(TemplateView):
     def get(self, request, *args, **kwargs):
         self.user = self.get_user()
         if self.user and self.valid_link():
+            self.user.is_active = True
+            self.user.save()
             kwargs['success'] = True
         return super(RegistrationConfirmView, self).get(request, *args, **kwargs)
 
