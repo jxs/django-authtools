@@ -25,7 +25,7 @@ User models
 
 1.  Install the package::
 
-        $ pip install django-authtools
+        $ pip install git+https://github.com/jxs/django-authtools.git
 
 2.  Add ``authtools`` to your ``INSTALLED_APPS``.
 
